@@ -1,0 +1,77 @@
+name: Check upstream Saleor releases
+
+on:
+  schedule:
+    # Every Monday at 09:00 UTC
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+
+jobs:
+  check-releases:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for new upstream tags
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Get the latest release from upstream saleor/saleor
+          LATEST=$(gh api repos/saleor/saleor/releases/latest --jq '.tag_name' 2>/dev/null || echo "unknown")
+          echo "latest_upstream=$LATEST" >> "$GITHUB_OUTPUT"
+
+          # Get the tag our deploy branch is based on
+          OUR_BASE="3.22.41"
+          echo "our_base=$OUR_BASE" >> "$GITHUB_OUTPUT"
+
+          # Check if there are newer 3.22.x patch releases
+          TAGS_3_22=$(gh api repos/saleor/saleor/tags --paginate --jq '.[].name' | grep '^3\.22\.' | sort -V | tail -5)
+          echo "recent_3_22_tags<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$TAGS_3_22" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+          NEWEST_3_22=$(echo "$TAGS_3_22" | tail -1)
+          echo "newest_3_22=$NEWEST_3_22" >> "$GITHUB_OUTPUT"
+
+          if [ "$NEWEST_3_22" != "$OUR_BASE" ] && [ -n "$NEWEST_3_22" ]; then
+            echo "has_update=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_update=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Send email notification
+        if: steps.check.outputs.has_update == 'true'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: email-smtp.us-east-1.amazonaws.com
+          server_port: 587
+          secure: true
+          username: ${{ secrets.SES_SMTP_USERNAME }}
+          password: ${{ secrets.SES_SMTP_PASSWORD }}
+          subject: "Saleor upstream update: ${{ steps.check.outputs.newest_3_22 }} available (we're on ${{ steps.check.outputs.our_base }})"
+          to: dkendall@ledoweb.com
+          from: "Saleor Fork Bot <noreply@ledoweb.com>"
+          body: |
+            A newer Saleor 3.22.x release is available upstream.
+
+            Our fork base: ${{ steps.check.outputs.our_base }}
+            Newest 3.22.x: ${{ steps.check.outputs.newest_3_22 }}
+            Latest upstream release: ${{ steps.check.outputs.latest_upstream }}
+
+            Recent 3.22.x tags:
+            ${{ steps.check.outputs.recent_3_22_tags }}
+
+            Action needed:
+            1. Check if our OIDC fix PR (saleor/saleor#18919) has been merged
+            2. If merged, switch to the official image
+            3. If not merged, rebase our fork onto the new tag
+
+            Fork: https://github.com/ledoent/saleor
+            Upstream: https://github.com/saleor/saleor/releases
+
+      - name: Summary
+        run: |
+          echo "### Upstream Release Check" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Our base: ${{ steps.check.outputs.our_base }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Newest 3.22.x: ${{ steps.check.outputs.newest_3_22 }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Latest upstream: ${{ steps.check.outputs.latest_upstream }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Update available: ${{ steps.check.outputs.has_update }}" >> "$GITHUB_STEP_SUMMARY"
