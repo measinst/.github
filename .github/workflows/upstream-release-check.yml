@@ -49,7 +49,7 @@ jobs:
           password: ${{ secrets.SES_SMTP_PASSWORD }}
           subject: "Saleor upstream update: ${{ steps.check.outputs.newest_3_22 }} available (we're on ${{ steps.check.outputs.our_base }})"
           to: dkendall@ledoweb.com
-          from: "Saleor Fork Bot <noreply@ledoweb.com>"
+          from: "Saleor Fork Bot <noreply@duropc.com>"
           body: |
             A newer Saleor 3.22.x release is available upstream.
 
